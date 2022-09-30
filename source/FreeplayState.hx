@@ -1,6 +1,5 @@
 package;
 
-import flixel.input.gamepad.FlxGamepad;
 import flash.text.TextField;
 import flixel.FlxG;
 import flixel.FlxSprite;
@@ -8,7 +7,10 @@ import flixel.addons.display.FlxGridOverlay;
 import flixel.group.FlxGroup.FlxTypedGroup;
 import flixel.math.FlxMath;
 import flixel.text.FlxText;
+import flixel.tweens.FlxEase;
+import flixel.tweens.FlxTween;
 import flixel.util.FlxColor;
+import flixel.util.FlxTimer;
 import lime.utils.Assets;
 
 
@@ -22,16 +24,19 @@ class FreeplayState extends MusicBeatState
 {
 	var songs:Array<SongMetadata> = [];
 
+	var tween:FlxTween;
+	var pano:FlxSprite;
+	var panoclone:FlxSprite;
+	var startscroll:Bool;
+
 	var selector:FlxText;
 	var curSelected:Int = 0;
 	var curDifficulty:Int = 1;
 
 	var scoreText:FlxText;
-	var comboText:FlxText;
 	var diffText:FlxText;
 	var lerpScore:Int = 0;
 	var intendedScore:Int = 0;
-	var combo:String = '';
 
 	private var grpSongs:FlxTypedGroup<Alphabet>;
 	private var curPlaying:Bool = false;
@@ -71,8 +76,20 @@ class FreeplayState extends MusicBeatState
 
 		// LOAD CHARACTERS
 
-		var bg:FlxSprite = new FlxSprite().loadGraphic(Paths.image('menuBGBlue'));
-		add(bg);
+		//var bg:FlxSprite = new FlxSprite().loadGraphic(Paths.image('menuBGBlue'));
+		//add(bg);
+
+		pano = new FlxSprite(-1600, 0).loadGraphic(Paths.image('menuBG'));
+		pano.antialiasing = true;
+		pano.updateHitbox();
+		add(pano);
+
+		panoclone = new FlxSprite(-2880, 0).loadGraphic(Paths.image('menuBG'));
+		panoclone.antialiasing = true;
+		panoclone.updateHitbox();
+		add(panoclone);
+
+		startscroll = true;
 
 		grpSongs = new FlxTypedGroup<Alphabet>();
 		add(grpSongs);
@@ -109,10 +126,6 @@ class FreeplayState extends MusicBeatState
 		diffText.font = scoreText.font;
 		add(diffText);
 
-		comboText = new FlxText(diffText.x + 100, diffText.y, 0, "", 24);
-		comboText.font = diffText.font;
-		add(comboText);
-
 		add(scoreText);
 
 		changeSelection();
@@ -144,6 +157,10 @@ class FreeplayState extends MusicBeatState
 
 			trace(md);
 		 */
+
+		#if android
+		addVirtualPad(FULL, A_B);
+		#end
 
 		super.create();
 	}
@@ -183,33 +200,10 @@ class FreeplayState extends MusicBeatState
 			lerpScore = intendedScore;
 
 		scoreText.text = "PERSONAL BEST:" + lerpScore;
-		comboText.text = combo + '\n';
 
-		var upP = FlxG.keys.justPressed.UP;
-		var downP = FlxG.keys.justPressed.DOWN;
+		var upP = controls.UP_P;
+		var downP = controls.DOWN_P;
 		var accepted = controls.ACCEPT;
-
-		var gamepad:FlxGamepad = FlxG.gamepads.lastActive;
-
-		if (gamepad != null)
-		{
-			if (gamepad.justPressed.DPAD_UP)
-			{
-				changeSelection(-1);
-			}
-			if (gamepad.justPressed.DPAD_DOWN)
-			{
-				changeSelection(1);
-			}
-			if (gamepad.justPressed.DPAD_LEFT)
-			{
-				changeDiff(-1);
-			}
-			if (gamepad.justPressed.DPAD_RIGHT)
-			{
-				changeDiff(1);
-			}
-		}
 
 		if (upP)
 		{
@@ -220,9 +214,9 @@ class FreeplayState extends MusicBeatState
 			changeSelection(1);
 		}
 
-		if (FlxG.keys.justPressed.LEFT)
+		if (controls.LEFT_P)
 			changeDiff(-1);
-		if (FlxG.keys.justPressed.RIGHT)
+		if (controls.RIGHT_P)
 			changeDiff(1);
 
 		if (controls.BACK)
@@ -230,22 +224,35 @@ class FreeplayState extends MusicBeatState
 			FlxG.switchState(new MainMenuState());
 		}
 
+
+		if (startscroll == true)
+			{
+				startscroll = false;
+				panoclone.x = 1280;
+				pano.x = 0;
+				//pano.visible = false;
+				FlxTween.tween(pano, {x: -1600}, 90, {
+				onComplete: function(twn:FlxTween)
+			{
+				tween = FlxTween.tween(pano, { x: -2880 }, 90);
+				FlxTween.tween(panoclone, {x: 0}, 90, {
+				onComplete: function(twn:FlxTween)
+			{
+				tween.cancel();
+				startscroll = true;
+			}
+		});
+			}
+		});
+			}
+
 		if (accepted)
 		{
-			// adjusting the song name to be compatible
-			var songFormat = StringTools.replace(songs[curSelected].songName, " ", "-");
-			switch (songFormat) {
-				case 'Dad-Battle': songFormat = 'Dadbattle';
-				case 'Philly-Nice': songFormat = 'Philly';
-			}
-			
-			trace(songs[curSelected].songName);
-
-			var poop:String = Highscore.formatSong(songFormat, curDifficulty);
+			var poop:String = Highscore.formatSong(songs[curSelected].songName.toLowerCase(), curDifficulty);
 
 			trace(poop);
-			
-			PlayState.SONG = Song.loadFromJson(poop, songs[curSelected].songName);
+
+			PlayState.SONG = Song.loadFromJson(poop, songs[curSelected].songName.toLowerCase());
 			PlayState.isStoryMode = false;
 			PlayState.storyDifficulty = curDifficulty;
 			PlayState.storyWeek = songs[curSelected].week;
@@ -259,23 +266,25 @@ class FreeplayState extends MusicBeatState
 		curDifficulty += change;
 
 		if (curDifficulty < 0)
-			curDifficulty = 2;
-		if (curDifficulty > 2)
+			curDifficulty = 3;
+		if (curDifficulty > 3)
 			curDifficulty = 0;
 
-		// adjusting the highscore song name to be compatible (changeDiff)
-		var songHighscore = StringTools.replace(songs[curSelected].songName, " ", "-");
-		switch (songHighscore) {
-			case 'Dad-Battle': songHighscore = 'Dadbattle';
-			case 'Philly-Nice': songHighscore = 'Philly';
-		}
-		
 		#if !switch
-		intendedScore = Highscore.getScore(songHighscore, curDifficulty);
-		combo = Highscore.getCombo(songHighscore, curDifficulty);
+		intendedScore = Highscore.getScore(songs[curSelected].songName, curDifficulty);
 		#end
 
-		diffText.text = CoolUtil.difficultyFromInt(curDifficulty).toUpperCase();
+		switch (curDifficulty)
+		{
+			case 0:
+				diffText.text = "PEACEFUL";
+			case 1:
+				diffText.text = 'HARD';
+			case 2:
+				diffText.text = "HARDCORE";
+			case 3:
+				diffText.text = "ULTRA HARDCORE";
+		}
 	}
 
 	function changeSelection(change:Int = 0)
@@ -295,23 +304,10 @@ class FreeplayState extends MusicBeatState
 			curSelected = 0;
 
 		// selector.y = (70 * curSelected) + 30;
-		
-		// adjusting the highscore song name to be compatible (changeSelection)
-		// would read original scores if we didn't change packages
-		var songHighscore = StringTools.replace(songs[curSelected].songName, " ", "-");
-		switch (songHighscore) {
-			case 'Dad-Battle': songHighscore = 'Dadbattle';
-			case 'Philly-Nice': songHighscore = 'Philly';
-		}
 
 		#if !switch
-		intendedScore = Highscore.getScore(songHighscore, curDifficulty);
-		combo = Highscore.getCombo(songHighscore, curDifficulty);
+		intendedScore = Highscore.getScore(songs[curSelected].songName, curDifficulty);
 		// lerpScore = 0;
-		#end
-
-		#if PRELOAD_ALL
-		FlxG.sound.playMusic(Paths.inst(songs[curSelected].songName), 0);
 		#end
 
 		var bullShit:Int = 0;
